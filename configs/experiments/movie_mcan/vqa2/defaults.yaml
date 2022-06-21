@@ -1,0 +1,105 @@
+model_config:
+  movie_mcan:
+    losses:
+    - type: triple_logit_bce
+    image_feature_dim: 2560
+
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: false
+    depth_first: true
+    use_features: true
+    zoo_requirements:
+      - vqa2.defaults
+    features:
+      train:
+      - vqa2/reliable_vqa-clip/features
+      val:
+      - vqa2/reliable_vqa-clip/features
+      test:
+      - vqa2/reliable_vqa-clip/features
+    annotations:
+      train:
+      - vqa2/reliable_vqa-clip/annotations/imdb_train2014.npy
+      val:
+      - vqa2/reliable_vqa-clip/annotations/imdb_val2014-dev.npy
+      test:
+      - vqa2/reliable_vqa-clip/annotations/imdb_val2014-test.npy
+    # Set to >= max number of features for the dataset
+    max_features: 1024
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 5e-05
+    weight_decay: 0
+    eps: 1e-09
+    betas:
+    - 0.9
+    - 0.98
+
+scheduler:
+  type: multi_step
+  params:
+    use_warmup: true
+    lr_steps:
+    - 180000
+    - 216000
+    lr_ratio: 0.2
+    warmup_iterations: 54000
+    warmup_factor: 0.25
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_cost_threshold_file: null
+      cost_values:
+      - 1
+      - 10
+      - 100
+
+
+training:
+  lr_scheduler: true
+  clip_norm_mode: all
+  clip_gradients: false
+  max_grad_l2_norm: 5
+  max_updates: 236000
+  batch_size: 64
+  # update_frequency: 2  # Adding this with batch size 32 makes effective batch size 64
+  task_size_proportional_sampling: true
+  encoder_lr_multiply: 1
+  early_stop:
+    criteria: vqa2_extended/vqa_accuracy
+    minimize: false
+  find_unused_parameters: true

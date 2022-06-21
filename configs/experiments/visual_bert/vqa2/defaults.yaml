@@ -1,0 +1,108 @@
+model_config:
+  visual_bert:
+    hidden_size: 768
+    hidden_dropout_prob: 0.1
+    training_head_type: classification
+    num_labels: 3129
+    pooler_strategy: vqa
+    losses:
+    - type: logit_bce
+
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: false
+    return_features_info: true
+    processors:
+      text_processor:
+        type: bert_tokenizer
+        params:
+          tokenizer_config:
+            type: bert-base-uncased
+            params:
+              do_lower_case: true
+          mask_probability: 0
+          max_seq_length: 128
+    features:
+      train:
+      - coco/defaults/features/trainval2014.lmdb
+      val:
+      - coco/defaults/features/trainval2014.lmdb
+      test:
+      - coco/defaults/features/trainval2014.lmdb
+    annotations:
+      train:
+      - vqa2/defaults/annotations/imdb_train2014.npy
+      val:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy
+      test:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-test.npy
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 5e-5
+    eps: 1e-8
+    betas:
+    - 0.9
+    - 0.98
+
+scheduler:
+  type: warmup_cosine
+  params:
+    num_warmup_steps: 2000
+    num_training_steps: 88000
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_cost_threshold_file: null
+      cost_values:
+      - 1
+      - 10
+      - 100
+
+training:
+  batch_size: 896
+  lr_scheduler: true
+  clip_gradients: false
+  # Don't forget to update schedule_attributes if you update this
+  max_updates: 88000
+  early_stop:
+    criteria: vqa2_extended/vqa_accuracy
+    minimize: false
+  find_unused_parameters: true
+
+checkpoint:
+  pretrained_state_mapping:
+    model.bert: model.bert
+    model.classifier: model.classifier

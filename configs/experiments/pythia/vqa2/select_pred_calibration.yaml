@@ -1,0 +1,157 @@
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: true
+    use_images: false
+    use_features: true
+    zoo_requirements:
+    - coco.defaults
+    - coco.resnet152
+    - vqa2.defaults
+    features:
+      train:
+      - coco/defaults/features/trainval2014.lmdb,coco/resnet152/features/trainval2014.lmdb
+      val:
+      - coco/defaults/features/trainval2014.lmdb,coco/resnet152/features/trainval2014.lmdb
+      test:
+      - coco/defaults/features/trainval2014.lmdb,coco/resnet152/features/trainval2014.lmdb
+    annotations:
+      train:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy
+      val:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-val.npy
+      test:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-test.npy
+
+model_config:
+  select_pythia:
+    model_data_dir: ${env.data_dir}
+    losses:
+    - type: logit_bce
+    classifier:
+      type: logit
+      params:
+        img_hidden_dim: 5000
+        text_hidden_dim: 300
+    image_feature_embeddings:
+    - modal_combine:
+        type: non_linear_element_multiply
+        params:
+          dropout: 0
+          hidden_dim: 5000
+      normalization: softmax
+      transform:
+        type: linear
+        params:
+          out_dim: 1
+    image_feature_dim: 2048
+    image_feature_encodings:
+    - type: finetune_faster_rcnn_fpn_fc7
+      params:
+        bias_file: models/detectron.defaults/fc7_b.pkl
+        weights_file: models/detectron.defaults/fc7_w.pkl
+        model_data_dir: ${model_config.select_pythia.model_data_dir}
+    - type: default
+      params:
+        model_data_dir: ${model_config.select_pythia.model_data_dir}
+    image_text_modal_combine:
+      type: non_linear_element_multiply
+      params:
+        dropout: 0
+        hidden_dim: 5000
+    text_embeddings:
+    - type: attention
+      params:
+        hidden_dim: 1024
+        num_layers: 1
+        conv1_out: 512
+        conv2_out: 2
+        dropout: 0
+        embedding_dim: 300
+        kernel_size: 1
+        padding: 0
+        model_data_dir: ${model_config.select_pythia.model_data_dir}
+    selector:
+      type: calibration
+      sel_lr: 0.01
+    freeze_vqa: true
+
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 0.01
+    eps: 1e-8
+    weight_decay: 1e-4
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+      - mc_indices
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      model_name: pythia_selectpred_calibration
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      precomputed_cost_threshold_file: null
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      cost_values:
+      - 1
+      - 10
+      - 100
+  - type: ece
+    key: ece
+    params:
+      n_bins: 20
+
+training:
+  seed: 4321
+  clip_gradients: false
+  lr_scheduler: false
+  max_epochs: 100
+  max_updates: null
+  use_warmup: false
+  batch_size: 256
+  num_workers: 4
+  dataset_size_proportional_sampling: true
+  callbacks: []
+  early_stop:
+    enabled: false
+    criteria: vqa2_extended/risk_coverage/auc
+    minimize: true
+
+checkpoint:
+  pretrained_state_mapping:
+    word_embedding: word_embedding
+    text_embeddings: text_embeddings
+    image_feature_encoders: image_feature_encoders
+    image_feature_embeddings_list: image_feature_embeddings_list
+    image_text_multi_modal_combine_layer: image_text_multi_modal_combine_layer
+    classifier: classifier
+    selector: selector
+
+

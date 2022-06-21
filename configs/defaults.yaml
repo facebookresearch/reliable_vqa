@@ -1,0 +1,11 @@
+evaluation:
+  metrics:
+  - vqa_accuracy
+
+optimizer:
+  type: Adamax
+  params:
+    lr: 5e-5
+    eps: 1e-8
+  allow_unused_parameters: True
+
