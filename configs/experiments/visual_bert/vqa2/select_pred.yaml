@@ -1,0 +1,144 @@
+model_config:
+  select_visual_bert:
+    bert_model_name: bert-base-uncased
+    visual_embedding_dim: 2048
+    special_visual_initialize: true
+    embedding_strategy: plain
+    bypass_transformer: false
+    output_attentions: false
+    output_hidden_states: true
+    random_initialize: false
+    freeze_base: true
+    finetune_lr_multiplier: 1
+    zerobias: false     # Initialize last layer to predict closer to 0 on init for sigmoid outputs
+    return_hidden_states: false
+    hidden_size: 768
+    hidden_dropout_prob: 0.1
+    training_head_type: classification
+    num_labels: 3129
+    pooler_strategy: vqa
+    losses:
+    - type: correct_pred
+      params:
+        target_type: regress_bce
+        acc_threshold: 1.0
+    selector:
+      type: combo_embeddings_logit
+      params:
+        use_softmax: false
+        answer_hidden_size: 1024
+        hidden_1: 1024
+        hidden_2: 1024
+        dropout: 0.5
+        top_k: 5
+        full_dist: true
+        use_qi_embed: true
+        image_feat_size: ${model_config.select_visual_bert.hidden_size}
+        text_feat_size: ${model_config.select_visual_bert.hidden_size}
+        qi_feat_size: ${model_config.select_visual_bert.hidden_size}
+        image_hidden_size: 512
+        text_hidden_size: 512
+        qi_hidden_size: 512
+        pool_image_embedding: true
+        pool_image_dim: 1
+        pool_text_embedding: true
+        pool_text_dim: 1
+        pool_type: max
+      sel_lr: 0.0001
+    freeze_vqa: true
+
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: false
+    return_features_info: true
+    processors:
+      text_processor:
+        type: bert_tokenizer
+        params:
+          tokenizer_config:
+            type: bert-base-uncased
+            params:
+              do_lower_case: true
+          mask_probability: 0
+          max_seq_length: 128
+    annotations:
+      train:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy
+      val:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-val.npy
+      test:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-test.npy
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 0.0001
+    eps: 1e-8
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_cost_threshold_file: null
+      cost_values:
+      - 1
+      - 10
+      - 100
+
+training:
+  clip_norm_mode: all
+  clip_gradients: true
+  lr_ratio: 0.1
+  lr_scheduler: true
+  lr_steps:
+  - 1500
+  - 2000
+  - 2500
+  - 3000
+  max_grad_l2_norm: 0.25
+  max_updates: 3500
+  use_warmup: false
+  warmup_factor: 0.2
+  warmup_iterations: 1000
+  batch_size: 256
+  early_stop:
+    criteria: vqa2_extended/risk_coverage/auc
+    minimize: true
+  checkpoint_interval: 100
+  evaluation_interval: 100
+  log_interval: 10
+
+checkpoint:
+  pretrained_state_mapping:
+    model.bert: model.bert
+    model.classifier: model.classifier
+    selector: selector

@@ -1,0 +1,167 @@
+model_config:
+  select_vilbert:
+    bert_model_name: bert-base-uncased
+    visual_embedding_dim: 2048
+    special_visual_initialize: true
+    hard_cap_seq_len: null
+    cut_first: text
+    embedding_strategy: plain
+    bypass_transformer: false
+    output_attentions: false
+    output_hidden_states: false
+    text_only: false
+    random_initialize: false
+    freeze_base: true
+    finetune_lr_multiplier: 1
+    attention_probs_dropout_prob: 0.1
+    layer_norm_eps: 1e-12
+    hidden_act: "gelu"
+    hidden_dropout_prob: 0.1
+    hidden_size: 768
+    initializer_range: 0.02
+    intermediate_size: 3072
+    max_position_embeddings: 512
+    num_attention_heads: 12
+    num_hidden_layers: 12
+    type_vocab_size: 2
+    vocab_size: 30522
+    v_feature_size: 2048
+    v_target_size: 1601
+    v_hidden_size: 1024
+    v_num_hidden_layers: 6
+    v_num_attention_heads: 8
+    v_intermediate_size: 1024
+    bi_hidden_size: 1024
+    bi_num_attention_heads: 8
+    bi_intermediate_size: 1024
+    bi_attention_type: 1
+    v_attention_probs_dropout_prob: 0.1
+    v_hidden_act: "gelu"
+    v_hidden_dropout_prob: 0.1
+    v_initializer_range: 0.02
+    v_biattention_id: [0, 1, 2, 3, 4, 5]
+    t_biattention_id: [6, 7, 8, 9, 10, 11]
+    pooling_method: "mul"
+    fusion_method: "mul"
+    fast_mode: false
+    with_coattention: true
+    dynamic_attention: false
+    in_batch_pairs: false
+    task_specific_tokens: false
+    fixed_v_layer: 0
+    fixed_t_layer: 0
+    visualization: false
+    visual_target: 0
+    objective: 0
+    num_negative: 128
+    model: "bert"
+    training_head_type: classification
+    num_labels: 3129
+    losses:
+    - type: logit_bce
+    selector:
+      type: calibration
+      sel_lr: 0.01
+    freeze_vqa: true
+
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: true
+    return_features_info: true
+    processors:
+      text_processor:
+        type: bert_tokenizer
+        params:
+          tokenizer_config:
+            type: bert-base-uncased
+            params:
+              do_lower_case: true
+          mask_probability: 0
+          max_seq_length: 128
+      transformer_bbox_processor:
+        type: transformer_bbox
+        params:
+          bbox_key: bbox
+          image_width_key: image_width
+          image_height_key: image_height
+    annotations:
+      train:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy
+      val:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-val.npy
+      test:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-test.npy
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 0.01
+    eps: 1e-8
+    weight_decay: 1e-4
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+      - mc_indices
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      model_name: vilbert_maxprob
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_cost_threshold_file: null
+      cost_values:
+      - 1
+      - 10
+      - 100
+  - type: ece
+    key: ece
+    params:
+      n_bins: 20
+
+training:
+  seed: 4321
+  clip_gradients: false
+  lr_scheduler: false
+  max_epochs: 100
+  max_updates: null
+  use_warmup: false
+  batch_size: 256
+  num_workers: 4
+  dataset_size_proportional_sampling: true
+  callbacks: []
+  early_stop:
+    enabled: false
+    criteria: vqa2_extended/risk_coverage/auc
+    minimize: true
+
+checkpoint:
+  pretrained_state_mapping:
+    model.bert: model.bert
+    model.classifier: model.classifier
+    selector: selector

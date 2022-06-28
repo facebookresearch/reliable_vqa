@@ -1,0 +1,143 @@
+model_config:
+  select_movie_mcan:
+    model_data_dir: ${env.data_dir}
+    classifier:
+      type: triple_linear
+      params: {}
+    image_feature_embeddings:
+      type: two_branches
+      params:
+        hidden_dim: 1024
+        cond_dim: 1024
+        num_attn: 8
+        dropout: 0.1
+        num_layers: 6
+        cbn_num_layers: 4
+    image_feature_dim: 2560
+    image_feature_encodings:
+      type: default
+      params:
+        model_data_dir: ${model_config.select_movie_mcan.model_data_dir}
+        cond_features: 1024
+        in_dim: ${model_config.select_movie_mcan.image_feature_dim}
+    text_embeddings:
+      type: mcan
+      params:
+        hidden_dim: 1024
+        embedding_dim: 300
+        num_attn: 8
+        dropout: 0.1
+        num_layers: 6
+        num_attn_pool: 1
+        num_feat: 2
+        model_data_dir: ${model_config.select_movie_mcan.model_data_dir}
+    losses:
+    - type: logit_bce
+    selector:
+      type: calibration
+      sel_lr: 0.01
+      sel_weight_decay: 1e-4
+    freeze_vqa: true
+
+dataset_config:
+  vqa2_extended:
+    add_multiple_choice: true
+    depth_first: true
+    use_features: true
+    zoo_requirements:
+      - vqa2.defaults
+      - vqa2.grid_features
+    features:
+      train:
+      - coco/clip/chw_features
+      val:
+      - coco/clip/chw_features
+      test:
+      - coco/clip/chw_features
+    annotations:
+      train:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy
+      val:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-val.npy
+      test:
+      - vqa2/reliable_vqa/annotations/imdb_val2014-test.npy
+    # Set to >= max number of features for the dataset
+    max_features: 1024
+
+optimizer:
+  type: adam_w
+  params:
+    lr: 0.01
+    eps: 1e-8
+    weight_decay: 1e-4
+
+evaluation:
+  reporter:
+    type: file
+    params:
+      candidate_fields:
+      - id
+      - question_id
+      - image_id
+      - context_tokens
+      - captions
+      - scores
+      - answers_indices
+      - confidences
+      - mc_indices
+  metrics:
+  - vqa_accuracy
+  - type: risk_coverage
+    key: risk_coverage
+    datasets:
+    - vqa2_extended
+    params:
+      model_name: movie_mcan_maxprob
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_threshold_file: null
+      risk_tolerances:
+      - 0.01
+      - 0.05
+      - 0.1
+      - 0.2
+  - type: effective_reliability
+    key: effective_reliability
+    datasets:
+    - vqa2_extended
+    params:
+      save_dir: ${env:MMF_SAVE_DIR, ./save}
+      precomputed_cost_threshold_file: null
+      cost_values:
+      - 1
+      - 10
+      - 100
+  - type: ece
+    key: ece
+    params:
+      n_bins: 20
+
+training:
+  seed: 4321
+  clip_gradients: false
+  lr_scheduler: false
+  max_epochs: 100
+  max_updates: null
+  use_warmup: false
+  batch_size: 256
+  num_workers: 4
+  dataset_size_proportional_sampling: true
+  callbacks: []
+  early_stop:
+    enabled: false
+    criteria: vqa2_extended/risk_coverage/auc
+    minimize: true
+
+checkpoint:
+  pretrained_state_mapping:
+    word_embedding: word_embedding
+    text_embeddings: text_embeddings
+    image_feature_encoders: image_feature_encoders
+    image_feature_embeddings_list: image_feature_embeddings_list
+    image_text_multi_modal_combine_layer: image_text_multi_modal_combine_layer
+    classifier: classifier
+    selector: selector
