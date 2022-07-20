@@ -1,11 +1,11 @@
 # Reliable VQA
 
-This is the implementation for the paper [Reliable Visual Question Answering: Abstain Rather Than Answer Incorrectly](https://arxiv.org/abs/2204.13631). If you find our paper or this repository useful for your own work, please cite:
+This is the implementation for the ECCV 2022 paper [Reliable Visual Question Answering: Abstain Rather Than Answer Incorrectly](https://arxiv.org/abs/2204.13631). If you find our paper or this repository useful for your own work, please cite:
 ```
-@article{whitehead2022reliablevqa,
+@inproceedings{whitehead2022reliablevqa,
   title={Reliable Visual Question Answering: Abstain Rather Than Answer Incorrectly},
   author={Whitehead, Spencer and Petryk, Suzanne and Shakib, Vedaad and Gonzalez, Joseph and Darrell, Trevor and Rohrbach, Anna and Rohrbach, Marcus},
-  journal={arXiv preprint arXiv:2204.13631},
+  booktitle={Proceedings of the European Conference on Computer Vision (ECCV)},
   year={2022}
 }
 ```
