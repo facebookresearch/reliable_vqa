@@ -12,9 +12,11 @@ This is the implementation for the ECCV 2022 paper [Reliable Visual Question Ans
 
 This repository uses [PyTorch](https://pytorch.org/) and is built on top of [MMF](https://mmf.sh/). It contains the following:
 - Implementations for the metrics used in our paper, including risk, coverage, and Effective Reliability.
-- Implementations for maximum probability, calibration and learned multimodal selection functions.
+- Implementations for maximum probability (MaxProb), calibration, and learned multimodal selection functions (Selector).
 - Training configs for the models in our work.
 - Download links for the VQA v2 dataset splits, trained model checkpoints, and pre-extracted features used in our work.
+
+**Update:** The previous version of this repo unintentionally used the default ground truth answers in MMF in the field `answers` which has slightly different reference answers (e.g., it replaces some entries if they are not in the vocabulary of 3k answers). Therefore, we provide a standalone evaluation script ([eval_scripts/](eval_scripts/)) that uses the original VQA v2 annotations as references for evaluations. This update is reflected in the arXiv version (please see Changelog in the appendix) and future work should use the updated evaluations for reporting results.
 
 
 ## Repo Organization
@@ -25,11 +27,15 @@ The folders in this repo are structured as follows:
     - `experiments/` contains YAML configs to train each of the VQA models and corresponding selection functions.
     - `datasets/` contains the YAML config for the custom `vqa2_extended` dataset.
 - `datasets/`: contains the dataset implementation and builder for `vqa2_extended`. This dataset is the same as VQA v2 within MMF, but it also supports additional model confidence outputs for the selection functions and multiple choice annotations for calibration evaluation.
+- `eval_scripts/`: contains evaluation scripts for computing risk-coverage and Effective Reliability metrics in the paper.
+    - `reliable_vqa_eval.py`: contains an evaluator object that computes the different metrics.
+    - `run.py`: script for running the evaluations given model predictions and the ground truth annotations.
+    - `vqa.py`: contains an object for interfacing with the VQA v2 annotations and predictions.
 - `models/`: for each VQA model in our experiments, we register a version on top of the original model which returns additional confidence and intermediate feature outputs needed for the selection functions.
     - `selective_predictors.py` contains implementations for both calibration and Selector models.
 - `modules/`:
     - `losses.py` contains the correctness-prediction loss function for learned Selector models.
-    - `metrics.py` contains all metrics used in the paper: risk-coverage, Effective Reliability, and ECE.
+    - `metrics.py` contains implementations of the risk-coverage and Effective Reliability metrics in MMF for validation.
 - `__init__.py`: imports custom MMF components to be used by MMF.
 
 
@@ -43,7 +49,9 @@ Following the MMF installation, your environment should have Python 3.7+ and PyT
 
 **TL;DR:** We use the [VQA v2](https://visualqa.org/) dataset. We split the VQA v2 validation set into 3 parts and provide the annotations below. We also extract custom grid features for the CLIP-ViL model, provided below. All other annotations and features are automatically downloaded by MMF, as specified by each of the configs in this repo.
 
-### Downloading MMF Features and Annotations
+### Downloading Annotations and Features
+
+First, download the original VQA v2 validation question and answer annotation JSON files from here: https://visualqa.org/download.html. These will be used for the evaluations.
 
 When running MMF with one of our config files for the first time, MMF should automatically download the features and annotations for VQA v2. These directories/files will be stored in the `$MMF_DATA_DIR` (`env.data_dir`) under a `vqa2` directory. Please see MMF for more details on this. We recommend starting by running Pythia+MaxProb through this repo, which will download the annotations and features used for Pythia, ViLBERT, and VisualBERT (see [Training](#training) for details)
 
@@ -130,7 +138,7 @@ For training all VQA models, we use pre-extracted features instead of images for
                 val2014/
     ```
 
-#### Extracting Your Own Features
+#### [OPTIONAL] Extracting Your Own Features
 
 0. \[Optional\] We recommend creating a separate conda environment (with Python 3.7+) for the feature extraction.
 1. Clone the [CLIP-ViL repo](https://github.com/clip-vil/CLIP-ViL) and follow their installation/setup instructions (i.e., install [Detectron2](https://github.com/facebookresearch/detectron2/blob/main/INSTALL.md) from the CLIP-ViL provided local clone). Note that the CLIP-ViL repo does not need to be cloned within this repo.
@@ -225,29 +233,33 @@ mmf_run env.user_dir=<PATH_TO_REPO>/reliable_vqa env.data_dir=<YOUR_DATA_DIR> en
 
 ### Evaluation
 
-To evaluate any of the models, change the run type: `run_type=val`. Additionally, make sure that the `model` argument, `checkpoint.resume_file` argument, and config are consistent. To get results on our test split, replace the `val` annotation path in the config with that of the test annotations (i.e., `vqa2/reliable_vqa/annotations/imdb_val2014-test.npy`):
+We first make predictions on the val and test sets, and then evaluate these using the evaluation scripts.
+
+To get predictions, change the run type to test (`run_type=test`), add the argument `evaluation.predict=True`, and replace the `test` annotation path in the config with that of the annotations to get predictions on (e.g., `vqa2/reliable_vqa/annotations/imdb_val2014-test.npy`, `vqa2/reliable_vqa/annotations/imdb_val2014-val.npy`):
 ```
-mmf_run env.user_dir=<PATH_TO_REPO>/reliable_vqa env.data_dir=<YOUR_DATA_DIR> dataset=vqa2_extended model=select_movie_mcan config=configs/experiments/movie_mcan/vqa2/select_pred.yaml run_type=val checkpoint.resume=True checkpoint.resume_file=<YOUR_SELECTOR_SAVE_DIR>/best.ckpt dataset_config.vqa2_extended.annotations.val=vqa2/reliable_vqa-clip/annotations/imdb_val2014-test.npy
+mmf_run env.user_dir=<PATH_TO_REPO>/reliable_vqa env.data_dir=<YOUR_DATA_DIR> env.save_dir=<YOUR_RESULT_SAVE_DIR> dataset=vqa2_extended model=select_movie_mcan config=configs/experiments/movie_mcan/vqa2/select_pred.yaml run_type=test evaluation.predict=True checkpoint.resume=True checkpoint.resume_file=<YOUR_SELECTOR_SAVE_DIR>/best.ckpt dataset_config.vqa2_extended.annotations.test=vqa2/reliable_vqa-clip/annotations/imdb_val2014-test.npy
 ```
-For evaluating ViLBERT and VisualBERT with MaxProb, you can also simply use the model zoo versions of these to evaluate:
+For getting predictions from ViLBERT and VisualBERT with MaxProb, you can also simply use the model zoo versions of these:
 ```
-mmf_run env.user_dir=<PATH_TO_REPO>/reliable_vqa env.data_dir=<YOUR_DATA_DIR> dataset=vqa2_extended model=visual_bert config=configs/experiments/visual_bert/vqa2/defaults.yaml run_type=val checkpoint.resume=True checkpoint.resume_zoo=visual_bert.finetuned.vqa2.from_coco_train dataset_config.vqa2_extended.annotations.val=vqa2/reliable_vqa-clip/annotations/imdb_val2014-test.npy
+mmf_run env.user_dir=<PATH_TO_REPO>/reliable_vqa env.data_dir=<YOUR_DATA_DIR> env.save_dir=<YOUR_RESULT_SAVE_DIR> dataset=vqa2_extended model=visual_bert config=configs/experiments/visual_bert/vqa2/defaults.yaml run_type=test evaluation.predict=True checkpoint.resume=True checkpoint.resume_zoo=visual_bert.finetuned.vqa2.from_coco_train dataset_config.vqa2_extended.annotations.test=vqa2/reliable_vqa-clip/annotations/imdb_val2014-test.npy
 ```
+This will produce a JSON file (similar format to the [VQA v2 result format](https://visualqa.org/evaluation.html)) within `env.save_dir` containing the model's answers and confidences that we use to evaluate. Repeat this using `imdb_val2014-val.npy` as the test set to get results on the val data for choosing thresholds.
 
-The above commands will output **VQA accuracy**, **coverage@risk**, and **AUC** for the risk-coverage curve.
-
-**Effective Reliability** requires a threshold to be chosen on a validation set for each choice of cost, which is then used when evaluating on the test set. To do this, first run evaluation on the validation split (i.e., `dataset_config.vqa2_extended.annotations.val=vqa2/reliable_vqa/annotations/imdb_val2014-dev.npy`), which, by default, saves a CSV file with each cost and corresponding threshold, under the path `<MMF_SAVE_DIR>/thresholds_at_costs.csv` (with the environment variable `MMF_SAVE_DIR`). You can also specify a directory in the config file for where this should be saved.
-
-Next, add the CSV filepath as the `precomputed_cost_file` in the effective reliability metric parameters in the config. Then, change the val annotation path to point to the test set and run evaluation again, which reads the thresholds from the CSV.
-
-**Expected calibration error (ECE)** requires the VQA multiple choice annotations to be included in the annotation files. We provide these in the `dev`, `val`, and `test` annotations (we do not add them to the training annotations, as as we only compute ECE for evaluation). ECE also requires that the config setting `dataset_config.vqa2_extended.add_multiple_choice` is set to `true`.
-
+Next, we use a standalone evaluation script to get the evaluation metrics, which accepts the original VQA v2 question and annotation JSONs as references:
+```
+python eval_scripts/run.py \
+--questions <PATH>/v2_OpenEnded_mscoco_val2014_questions.json \
+--annotations <PATH/v2_mscoco_val2014_annotations.json \
+--predictions <RESULTS_ON_TEST_DATA>.json \
+--threshold_predictions <RESULTS_ON_VAL_DATA>.json
+```
+This command will output **VQA accuracy**, **coverage@risk**, **AUC** for the risk-coverage curve, and **Effective Reliability**. Note, since this uses the original VQA v2 annotations and a similar format to VQA result format, this evaluation script should be compatible with predictions from models outside this repo by simply providing an extra `confidence` field in the predictions.
 
 ## Acknowledgements
 
-We would like to thank the creators of MMF for their open-source implementations. We also thank Sheng Shen and the authors of [How Much Can CLIP Benefit Vision-and-Language Tasks?](https://arxiv.org/abs/2107.06383) for providing assistance on extracting features and reproducing their model as well as releasing their code. Lastly, we thank Grace Luo for early assistance with MMF.
+We would like to thank the creators of MMF for their open-source implementations. We thank Sheng Shen and the authors of [How Much Can CLIP Benefit Vision-and-Language Tasks?](https://arxiv.org/abs/2107.06383) for providing assistance on extracting features and reproducing their model as well as releasing their code. We also thank Aishwarya Agrawal for input on the evaluations. Lastly, we thank Grace Luo for early assistance with MMF.
 
 
 ## License
 
-The majority of Reliable VQA is licensed under CC-BY-NC (see [LICENSE](LICENSE) for details), however [fixed_mcan_clip_grid_feature.py](fixed_mcan_clip_grid_feature.py), which is modified from the [mcan_clip_grid_feature.py](https://github.com/clip-vil/CLIP-ViL/blob/master/CLIP-ViL-Direct/vqa/mcan_clip_grid_feature.py) script in https://github.com/clip-vil/CLIP-ViL/tree/master/CLIP-ViL-Direct/vqa, is licensed under the Apache 2.0 license.
+The majority of Reliable VQA is licensed under CC-BY-NC (see [LICENSE](LICENSE) for details), however [fixed_mcan_clip_grid_feature.py](fixed_mcan_clip_grid_feature.py), which is modified from the [mcan_clip_grid_feature.py](https://github.com/clip-vil/CLIP-ViL/blob/master/CLIP-ViL-Direct/vqa/mcan_clip_grid_feature.py) script in https://github.com/clip-vil/CLIP-ViL/tree/master/CLIP-ViL-Direct/vqa, is licensed under the Apache 2.0 license and [eval_scripts/vqa.py](eval_scripts/vqa.py) as well as [eval_scripts/reliable_vqa_eval.py](eval_scripts/reliable_vqa_eval.py), which are modified from [vqa.py](https://github.com/GT-Vision-Lab/VQA/blob/master/PythonHelperTools/vqaTools/vqa.py) and [vqaEval.py](https://github.com/GT-Vision-Lab/VQA/blob/master/PythonEvaluationTools/vqaEvaluation/vqaEval.py) in https://github.com/GT-Vision-Lab/VQA, are licensed under the BSD 2-Clause License.
